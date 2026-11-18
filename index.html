@@ -348,7 +348,19 @@ $("printBtn").addEventListener("click", () => {
   window.print();
 });
 
-loadSettings(); refreshThumbs(); render();
+loadSettings(); refreshThumbs();
+// Deep link from Notion: ?sn=SN1,SN2,...&name=Batch
+(function loadFromUrl() {
+  const q = new URLSearchParams(location.search);
+  const sn = (q.get("sn") || "").split(/[,\s]+/).map(s => s.trim()).filter(Boolean);
+  if (!sn.length) return;
+  serials = sn.slice(); fileSerials = sn.slice();
+  $("pasteIn").value = sn.join("\n");
+  const name = q.get("name");
+  $("fileStatus").textContent = `Loaded ${sn.length} serial(s) from Notion${name ? ": " + name : ""}.`;
+  if (name) document.title = name + " – Serial Labels";
+})();
+render();
 </script>
 </body>
 </html>
