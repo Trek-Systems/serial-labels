@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Trek Serial Label Generator – Avery 6571</title>
+<meta name="robots" content="noindex">
+<style>
+  :root { --ink:#111; --muted:#666; --line:#ddd; --accent:#0b5cad; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: Segoe UI, Arial, sans-serif; color:var(--ink); background:#f3f4f6; }
+  .app { display:grid; grid-template-columns: 340px 1fr; min-height:100vh; }
+  .panel { background:#fff; border-right:1px solid var(--line); padding:16px 18px; overflow:auto; }
+  h1 { font-size:17px; margin:0 0 2px; }
+  .sub { color:var(--muted); font-size:12px; margin-bottom:14px; }
+  fieldset { border:1px solid var(--line); border-radius:6px; margin:0 0 12px; padding:10px 12px; }
+  legend { font-size:12px; font-weight:600; padding:0 4px; }
+  label { display:block; font-size:12px; margin:6px 0 2px; color:#333; }
+  input[type=number] { width:80px; }
+  input, textarea, button, select { font:inherit; font-size:13px; }
+  textarea { width:100%; height:80px; }
+  .row { display:flex; gap:10px; align-items:end; flex-wrap:wrap; }
+  .row > div { flex:1; min-width:70px; }
+  .row input[type=number] { width:100%; }
+  .thumb { height:36px; border:1px solid var(--line); vertical-align:middle; margin-left:6px; background:#fff; }
+  button.primary { background:var(--accent); color:#fff; border:0; border-radius:6px; padding:10px 14px; width:100%; font-weight:600; cursor:pointer; }
+  button.small { padding:3px 8px; font-size:12px; }
+  .status { font-size:12px; color:var(--muted); margin:6px 0; }
+  .status.err { color:#b00020; }
+  .hint { font-size:11px; color:var(--muted); line-height:1.4; }
+  .preview { padding:24px; overflow:auto; }
+  .sheet { width:8.5in; height:11in; background:#fff; position:relative; margin:0 auto 24px; box-shadow:0 2px 10px rgba(0,0,0,.15); overflow:hidden; }
+  .label { position:absolute; width:3in; height:0.625in; overflow:hidden; border-radius:0.06in; }
+  .label svg { display:block; }
+  .label .safe { display:none; }
+  .show-safe .label .safe { display:inline; }
+  .label.outline { box-shadow: inset 0 0 0 0.5px #999; }
+  .label.empty.outline { outline-color:#ddd; }
+  @page { size: letter; margin: 0; }
+  @media print {
+    body { background:#fff; }
+    .panel { display:none; }
+    .app { display:block; }
+    .preview { padding:0; }
+    .sheet { margin:0; box-shadow:none; page-break-after:always; break-after:page; }
+    .sheet:last-child { page-break-after:auto; break-after:auto; }
+    .label.outline { box-shadow:none; }
+    .label.outline.keep { box-shadow: inset 0 0 0 0.5px #000; }
+    .label .safe, .show-safe .label .safe { display:none !important; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="panel">
+    <h1>Serial Label Generator</h1>
+    <div class="sub">Avery 6571 · 3" × 0.625" · 32 per sheet · works offline</div>
+
+    <fieldset>
+      <legend>1. Serial numbers</legend>
+      <input type="file" id="fileIn" accept=".xlsx,.csv,.txt">
+      <div class="status" id="fileStatus">Load .xlsx / .csv (column "Serial", or first column).</div>
+      <label>…or paste one per line</label>
+      <textarea id="pasteIn" placeholder="tMAD040-J758-01&#10;tMAD040-J758-02"></textarea>
+    </fieldset>
+
+    <fieldset>
+      <legend>2. Images</legend>
+      <label>QR code (default: trek.systems/trekmount) <img id="qrThumb" class="thumb" alt="" style="display:none"></label>
+      <input type="file" id="qrIn" accept="image/*">
+      <button class="small" id="qrReset" type="button">Reset to Trek QR</button> <button class="small" id="qrClear" type="button">No QR</button>
+      <label>Logo <img id="logoThumb" class="thumb" alt=""></label>
+      <input type="file" id="logoIn" accept="image/*">
+      <button class="small" id="logoReset" type="button">Reset to Trek logo</button>
+      <div class="hint">White borders are trimmed automatically. Images are remembered on this computer.</div>
+    </fieldset>
+
+    <fieldset>
+      <legend>3. Sheet</legend>
+      <div class="row">
+        <div><label>Start at label #</label><input type="number" id="startPos" min="1" max="32" value="1"></div>
+        <div><label>Copies each</label><input type="number" id="copies" min="1" max="50" value="1"></div>
+      </div>
+      <div class="hint">Start # lets you reuse a partly used sheet (numbered left→right, top→bottom).</div>
+      <label><input type="checkbox" id="outlines" checked> Show label outlines in preview</label>
+      <label><input type="checkbox" id="safeArea" checked> Show printable area (red, never printed)</label>
+      <label><input type="checkbox" id="testPrint"> Print outlines (alignment test on plain paper)</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>4. Alignment (inches)</legend>
+      <div class="row">
+        <div><label>Shift right</label><input type="number" id="offX" step="0.01" value="0"></div>
+        <div><label>Shift down</label><input type="number" id="offY" step="0.01" value="0"></div>
+      </div>
+      <details>
+        <summary class="hint" style="cursor:pointer;margin-top:6px">Sheet geometry</summary>
+        <div class="row">
+          <div><label>Top margin</label><input type="number" id="gTop" step="0.001" value="0.5"></div>
+          <div><label>Left margin</label><input type="number" id="gLeft" step="0.0001" value="0.8435"></div>
+        </div>
+        <div class="row">
+          <div><label>Col pitch</label><input type="number" id="gPitchX" step="0.001" value="3.813"></div>
+          <div><label>Row pitch</label><input type="number" id="gPitchY" step="0.001" value="0.625"></div>
+        </div>
+        <div class="row">
+          <div><label>Columns</label><input type="number" id="gCols" value="2"></div>
+          <div><label>Rows</label><input type="number" id="gRows" value="16"></div>
+        </div>
+        <button class="small" id="geoReset" type="button" style="margin-top:6px">Reset geometry</button>
+      </details>
+      <div class="hint" style="margin-top:6px">Print a test on plain paper, hold it over a label sheet against a window, adjust shift. Settings are saved.</div>
+    </fieldset>
+
+    <button class="primary" id="printBtn" type="button">Print</button>
+    <div class="hint" style="margin-top:8px">In the print dialog: <b>Scale = 100% / Actual size</b>, <b>Margins = None</b>, Paper = Letter, Headers/footers off.</div>
+    <div class="status" id="summary"></div>
+  </div>
+  <div class="preview" id="preview"></div>
+</div>
+
+<script>
+"use strict";
+const DEFAULT_QR = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAZAAAAGQAQAAAACoxAthAAABZklEQVR42u2cQY7DMAwDxUX//2XtIYlNKephr+sJEKR1MxcCBC3LrqJcGRGKvL/pHlN55yf+fIGA/A/kE8sdlz9kTnkcVN9BZJCT/bJz5EkT3U9Pm/0OIoOc7Re/VGZgsmRBMRD80geeTNFKGBQDAXG/ZMmXtCpfQwWDyCAn+0XjDztjav2PyCAHI8pvP7xWl1EMBL945aLyOW2dzG9EBjk7X7xDma9+Za9vEBnk3PpFJU2G2Hn1+REZhHyZdsGk9WOYj4GAXOtjni9pSaKWNmI+BkK9vxzie2CmG8VA8Muu+GXOifJEMRCQvd9yp0rtV/Y9/kIxEPaPlfWvHNfJtCobRAahv9/Xjns3Zj8RGeTs/kvdnZxD/8XHEBmE85X97EtfYw7Oi4GAfOY52HQ2mf4+CH6Zh7OdQ3YnITIIfnmfGLtmZ96PEetjIPilnXDJYX+/1j9hsH8MhPOVc8JMvUzyBeRg5BfSbXRJUXCSrgAAAABJRU5ErkJggg==";
+const DEFAULT_LOGO = "data:image/png;base64,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";
+const GEO_DEFAULT = { gTop:0.5, gLeft:0.8435, gPitchX:3.813, gPitchY:0.625, gCols:2, gRows:16 };
+const $ = id => document.getElementById(id);
+const store = {
+  get(k, d) { try { const v = localStorage.getItem("trekLbl." + k); return v === null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem("trekLbl." + k, JSON.stringify(v)); } catch (e) {} }
+};
+
+let serials = [];
+let fileSerials = [];
+let logoSrc = store.get("logo2", DEFAULT_LOGO);
+let qrSrc = store.get("qr2", DEFAULT_QR);
+
+/* ---------- Code 128 (auto B/C) as SVG ---------- */
+const C128 = ["212222","222122","222221","121223","121322","131222","122213","122312","132212","221213","221312","231212","112232","122132","122231","113222","123122","123221","223211","221132","221231","213212","223112","312131","311222","321122","321221","312212","322112","322211","212123","212321","232121","111323","131123","131321","112313","132113","132311","211313","231113","231311","112133","112331","132131","113123","113321","133121","313121","211331","231131","213113","213311","213131","311123","311321","331121","312113","312311","332111","314111","221411","431111","111224","111422","121124","121421","141122","141221","112214","112412","122114","122411","142112","142211","241211","221114","413111","241112","134111","111242","121142","121241","114212","124112","124211","411212","421112","421211","212141","214121","412121","111143","111341","131141","114113","114311","411113","411311","113141","114131","311141","411131","211412","211214","211232","2331112"];
+function code128Values(text) {
+  for (const ch of text) { const c = ch.charCodeAt(0); if (c < 32 || c > 126) throw new Error("Unsupported character in serial: " + JSON.stringify(ch)); }
+  const isDigits = (s, i, n) => { if (i + n > s.length) return false; for (let k = i; k < i + n; k++) { const c = s.charCodeAt(k); if (c < 48 || c > 57) return false; } return true; };
+  const vals = []; let set = null; let i = 0;
+  const toB = () => { if (set === null) vals.push(104); else if (set !== "B") vals.push(100); set = "B"; };
+  while (i < text.length) {
+    let run = 0; while (isDigits(text, i + run, 1)) run++;
+    if (run >= 4) {
+      if (run % 2 === 1) { toB(); vals.push(text.charCodeAt(i) - 32); i++; run--; }
+      if (set === null) vals.push(105); else if (set !== "C") vals.push(99);
+      set = "C";
+      for (let k = 0; k < run; k += 2) vals.push(parseInt(text.substr(i + k, 2), 10));
+      i += run;
+    } else { toB(); vals.push(text.charCodeAt(i) - 32); i++; }
+  }
+  let sum = vals[0]; for (let k = 1; k < vals.length; k++) sum += vals[k] * k;
+  vals.push(sum % 103); vals.push(106);
+  return vals;
+}
+function code128Bars(text) {
+  const vals = code128Values(text);
+  let x = 0, rects = "";
+  for (const v of vals) { const p = C128[v]; for (let j = 0; j < p.length; j++) { const w = +p[j]; if (j % 2 === 0) rects += `<rect x="${x}" y="0" width="${w}" height="1"/>`; x += w; } }
+  return { rects, modules: x };
+}
+
+/* ---------- Minimal .xlsx reader (no libraries) ---------- */
+async function unzip(buf) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  let eocd = -1; for (let i = buf.byteLength - 22; i >= Math.max(0, buf.byteLength - 66000); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error("Not a valid .xlsx file");
+  const count = dv.getUint16(eocd + 10, true); let p = dv.getUint32(eocd + 16, true);
+  const files = {};
+  for (let n = 0; n < count; n++) {
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true);
+    const nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true);
+    const loff = dv.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nlen));
+    files[name] = { method, csize, loff };
+    p += 46 + nlen + xlen + clen;
+  }
+  return async name => {
+    const f = files[name]; if (!f) return null;
+    const start = f.loff + 30 + dv.getUint16(f.loff + 26, true) + dv.getUint16(f.loff + 28, true);
+    const data = u8.subarray(start, start + f.csize);
+    if (f.method === 0) return new TextDecoder().decode(data);
+    const ds = new Blob([data]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+    return await new Response(ds).text();
+  };
+}
+const xml = s => new DOMParser().parseFromString(s, "application/xml");
+const tags = (node, t) => Array.from(node.getElementsByTagNameNS("*", t));
+async function readXlsx(buf) {
+  const get = await unzip(buf);
+  let sheetPath = "xl/worksheets/sheet1.xml";
+  try {
+    const wb = xml(await get("xl/workbook.xml")), rels = xml(await get("xl/_rels/workbook.xml.rels"));
+    const first = tags(wb, "sheet")[0];
+    const rid = first.getAttributeNS("http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id") || first.getAttribute("r:id");
+    const rel = tags(rels, "Relationship").find(r => r.getAttribute("Id") === rid);
+    let t = rel.getAttribute("Target"); sheetPath = t.startsWith("/") ? t.slice(1) : "xl/" + t.replace(/^\.\//, "");
+  } catch (e) {}
+  const ssText = await get("xl/sharedStrings.xml");
+  const shared = ssText ? tags(xml(ssText), "si").map(si => tags(si, "t").map(t => t.textContent).join("")) : [];
+  const sheet = xml(await get(sheetPath));
+  const rows = [];
+  for (const r of tags(sheet, "row")) {
+    const row = [];
+    for (const c of tags(r, "c")) {
+      const ref = c.getAttribute("r") || ""; const col = (ref.match(/^[A-Z]+/) || ["A"])[0];
+      let ci = 0; for (const ch of col) ci = ci * 26 + (ch.charCodeAt(0) - 64); ci--;
+      const t = c.getAttribute("t"); const v = tags(c, "v")[0];
+      let val = "";
+      if (t === "s") val = shared[+v.textContent] ?? "";
+      else if (t === "inlineStr") val = tags(c, "t").map(x => x.textContent).join("");
+      else if (v) val = v.textContent;
+      row[ci] = String(val).trim();
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+function readCsv(text) {
+  return text.split(/\r?\n/).map(line => line.split(/,|\t/).map(s => s.replace(/^"|"$/g, "").trim()));
+}
+function extractSerials(rows) {
+  rows = rows.filter(r => r && r.some(v => v));
+  if (!rows.length) return [];
+  let col = 0, start = 0;
+  const hdr = rows[0].findIndex(v => v && /serial|s\/?n\b/i.test(v));
+  if (hdr >= 0) { col = hdr; start = 1; }
+  return rows.slice(start).map(r => (r[col] || "").trim()).filter(Boolean);
+}
+
+/* ---------- Rendering ---------- */
+function num(id) { const v = parseFloat($(id).value); return isNaN(v) ? 0 : v; }
+/* Layout in inches, measured from the approved reference label (3" x 0.625"). */
+const L = {
+  safe:  { x:0.073, y:0.079, w:2.850, h:0.471 },   // printable area (preview only)
+  logo:  { x:0.128, y:0.081, w:0.465, h:0.467 },
+  bars:  { x:0.732, y:0.081, w:1.600, h:0.347 },
+  text:  { cx:1.532, baseline:0.525, size:0.1075, maxW:1.600 },
+  qr:    { x:2.448, y:0.109, w:0.404, h:0.407 }
+};
+function labelHtml(sn) {
+  let bars = "";
+  try {
+    const { rects, modules } = code128Bars(sn);
+    bars = `<g transform="translate(${L.bars.x} ${L.bars.y}) scale(${L.bars.w / modules} ${L.bars.h})">${rects}</g>`;
+  } catch (e) { bars = `<text x="${L.bars.x}" y="0.25" font-size="0.08" fill="#b00020">${escapeHtml(e.message)}</text>`; }
+  const estW = sn.length * L.text.size * 0.56;
+  const fs = estW > L.text.maxW ? L.text.size * L.text.maxW / estW : L.text.size;
+  const img = (src, r) => src ? `<image href="${src}" x="${r.x}" y="${r.y}" width="${r.w}" height="${r.h}" preserveAspectRatio="xMidYMid meet"/>` : "";
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 3 0.625" width="3in" height="0.625in" shape-rendering="crispEdges">
+    ${img(logoSrc, L.logo)}${bars}
+    <text x="${L.text.cx}" y="${L.text.baseline}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="${fs.toFixed(4)}" fill="#000" shape-rendering="geometricPrecision">${escapeHtml(sn)}</text>
+    ${img(qrSrc, L.qr)}
+    <rect class="safe" x="${L.safe.x}" y="${L.safe.y}" width="${L.safe.w}" height="${L.safe.h}" fill="none" stroke="#e8577a" stroke-width="0.006" stroke-dasharray="0.03 0.02"/>
+  </svg>`;
+}
+function escapeHtml(s) { return s.replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c])); }
+
+function render() {
+  const g = {}; for (const k in GEO_DEFAULT) g[k] = num(k);
+  const perSheet = Math.max(1, Math.round(g.gCols) * Math.round(g.gRows));
+  const startPos = Math.min(perSheet, Math.max(1, Math.round(num("startPos")))) - 1;
+  const copies = Math.max(1, Math.round(num("copies")));
+  const offX = num("offX"), offY = num("offY");
+  const list = []; for (const s of serials) for (let c = 0; c < copies; c++) list.push(s);
+  const outlines = $("outlines").checked, testPrint = $("testPrint").checked;
+  const total = startPos + list.length;
+  const sheets = Math.max(1, Math.ceil(total / perSheet));
+  let html = "";
+  for (let s = 0; s < sheets; s++) {
+    html += `<div class="sheet">`;
+    for (let i = 0; i < perSheet; i++) {
+      const slot = s * perSheet + i, idx = slot - startPos;
+      const r = Math.floor(i / g.gCols), c = i % g.gCols;
+      const left = g.gLeft + c * g.gPitchX + offX, top = g.gTop + r * g.gPitchY + offY;
+      const has = idx >= 0 && idx < list.length;
+      if (!has && !outlines && !testPrint) continue;
+      const cls = "label" + (has ? "" : " empty") + ((outlines || testPrint) ? " outline" : "") + (testPrint ? " keep" : "");
+      html += `<div class="${cls}" style="left:${left}in;top:${top}in">${has ? labelHtml(list[idx]) : ""}</div>`;
+    }
+    html += `</div>`;
+  }
+  $("preview").innerHTML = html;
+  $("preview").classList.toggle("show-safe", $("safeArea").checked);
+  $("summary").textContent = `${serials.length} serial(s) × ${copies} = ${list.length} label(s) on ${sheets} sheet(s).`;
+  saveSettings();
+}
+
+/* ---------- Settings ---------- */
+const SETTING_IDS = ["startPos", "copies", "offX", "offY", "gTop", "gLeft", "gPitchX", "gPitchY", "gCols", "gRows"];
+function saveSettings() {
+  const o = {}; for (const id of SETTING_IDS) o[id] = $(id).value;
+  o.outlines = $("outlines").checked; store.set("settings2", o);
+}
+function loadSettings() {
+  const o = store.get("settings2", null); if (!o) return;
+  for (const id of SETTING_IDS) if (o[id] !== undefined && id !== "startPos") $(id).value = o[id];
+  if (o.outlines !== undefined) $("outlines").checked = o.outlines;
+}
+function refreshThumbs() {
+  $("logoThumb").src = logoSrc;
+  if (qrSrc) { $("qrThumb").src = qrSrc; $("qrThumb").style.display = ""; } else $("qrThumb").style.display = "none";
+}
+async function trimImage(dataUrl) {
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = dataUrl; });
+  const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+  const ctx = c.getContext("2d"); ctx.drawImage(img, 0, 0);
+  const d = ctx.getImageData(0, 0, c.width, c.height).data;
+  let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+  for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+    const k = (y * c.width + x) * 4;
+    if (d[k + 3] > 40 && (d[k] + d[k + 1] + d[k + 2]) / 3 < 160) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+  }
+  if (x1 < 0) return dataUrl;
+  const o = document.createElement("canvas"); o.width = x1 - x0 + 1; o.height = y1 - y0 + 1;
+  o.getContext("2d").drawImage(c, x0, y0, o.width, o.height, 0, 0, o.width, o.height);
+  return o.toDataURL("image/png");
+}
+const readDataUrl = f => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(f); });
+
+/* ---------- Events ---------- */
+$("fileIn").addEventListener("change", async e => {
+  const f = e.target.files[0]; if (!f) return;
+  const st = $("fileStatus"); st.className = "status";
+  try {
+    const rows = /\.xlsx$/i.test(f.name) ? await readXlsx(await f.arrayBuffer()) : readCsv(await f.text());
+    fileSerials = extractSerials(rows);
+    st.textContent = `${f.name}: ${fileSerials.length} serial(s) loaded.`;
+    $("pasteIn").value = "";
+    serials = fileSerials.slice(); render();
+  } catch (err) { st.className = "status err"; st.textContent = "Could not read file: " + err.message; }
+});
+$("pasteIn").addEventListener("input", () => {
+  const lines = $("pasteIn").value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  serials = lines.length ? lines : fileSerials.slice(); render();
+});
+$("qrIn").addEventListener("change", async e => { const f = e.target.files[0]; if (!f) return; qrSrc = await trimImage(await readDataUrl(f)); store.set("qr2", qrSrc); refreshThumbs(); render(); });
+$("qrReset").addEventListener("click", () => { qrSrc = DEFAULT_QR; store.set("qr2", DEFAULT_QR); $("qrIn").value = ""; refreshThumbs(); render(); });
+$("qrClear").addEventListener("click", () => { qrSrc = null; store.set("qr2", null); $("qrIn").value = ""; refreshThumbs(); render(); });
+$("logoIn").addEventListener("change", async e => { const f = e.target.files[0]; if (!f) return; logoSrc = await trimImage(await readDataUrl(f)); store.set("logo2", logoSrc); refreshThumbs(); render(); });
+$("logoReset").addEventListener("click", () => { logoSrc = DEFAULT_LOGO; store.set("logo2", DEFAULT_LOGO); $("logoIn").value = ""; refreshThumbs(); render(); });
+$("geoReset").addEventListener("click", () => { for (const k in GEO_DEFAULT) $(k).value = GEO_DEFAULT[k]; render(); });
+for (const id of SETTING_IDS.concat(["outlines", "testPrint", "safeArea"])) $(id).addEventListener("input", render);
+$("printBtn").addEventListener("click", () => {
+  if (!serials.length && !$("testPrint").checked) { alert("Load serial numbers first (or tick the alignment test)."); return; }
+  window.print();
+});
+
+loadSettings(); refreshThumbs(); render();
+</script>
+</body>
+</html>
